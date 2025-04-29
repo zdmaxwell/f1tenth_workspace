@@ -1,0 +1,10 @@
+# ROS2 build directories
+build/
+install/
+log/
+
+# Python cache
+__pycache__/
+
+# VSCode settings
+.vscode/
