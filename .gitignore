@@ -9,3 +9,6 @@ __pycache__/
 
 # VSCode settings
 .vscode/
+
+# Compile commands
+compile_commands.json

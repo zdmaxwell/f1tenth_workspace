@@ -1,4 +1,4 @@
-#include "rclcpp/rclcpp.hpp"
+#include <rclcpp/rclcpp.hpp>
 #include "geometry_msgs/msg/twist.hpp"
 #include "ackermann_msgs/msg/ackermann_drive_stamped.hpp"
 
@@ -14,7 +14,7 @@ public:
         logParameters();
         setupSubscribers();
         setupPublishers();
-        setupTimers();
+        setupTimer();
 
         RCLCPP_INFO(this->get_logger(), "SlashTwistToAckermann Node started");
     }
@@ -26,8 +26,8 @@ private:
     double linear_acceleration_;
     double steering_velocity_;
     double max_steering_angle_;
-    ackermann_msgs::msg::AckermannDriveStamped ackermann_msg_; // could also use a SharedPtr here
-    bool is_ackermann_msg_ready_ = false;                      // flag to check if it's ok to publish the message, since I'm initializing ackermann_msg_ as an object and not a SharedPtr
+    ackermann_msgs::msg::AckermannDriveStamped ackermann_msg_;
+    bool is_ackermann_msg_ready_ = false; // flag to check if it's ok to publish the message, since I'm initializing ackermann_msg_ as an object and not a SharedPtr
 
     std::string twist_subscribe_topic_;
     std::string ackermann_publish_topic_;
@@ -36,7 +36,7 @@ private:
     rclcpp::Publisher<ackermann_msgs::msg::AckermannDriveStamped>::SharedPtr ackermann_pub_;
     rclcpp::TimerBase::SharedPtr timer_;
 
-    void setupTimers()
+    void setupTimer()
     {
         // create a timer based on the default or passed in publish period
         auto timer_period = std::chrono::duration<double>(publish_period_ms_ / 1000.0);
