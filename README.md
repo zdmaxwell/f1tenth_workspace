@@ -1,3 +1,9 @@
+F1TENTH Slash MPC
+
+## Demo
+[Watch the MPC visualization](media/demo.mp4)
+
+
 F1TENTH Autonomous Driving Bring-Up
 ===================================
 
