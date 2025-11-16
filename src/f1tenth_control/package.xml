@@ -10,8 +10,18 @@
   <buildtool_depend>ament_cmake</buildtool_depend>
 
   <depend>rclcpp</depend>
+  
+  <build_depend>eigen3_cmake_module</build_depend>
 
+  <exec_depend>eigen3_cmake_module</exec_depend>
   <exec_depend>pkg-config</exec_depend>
+  <exec_depend>geometry_msgs</exec_depend>
+  <exec_depend>nav_msgs</exec_depend>
+  <exec_depend>tf2</exec_depend>
+  <exec_depend>tf2_geometry_msgs</exec_depend>
+  <exec_depend>ament_cmake</exec_depend>
+  <exec_depend>cppad</exec_depend>
+  <exec_depend>ackermann_msgs</exec_depend>
 
   <test_depend>ament_lint_auto</test_depend>
   <test_depend>ament_lint_common</test_depend>
