@@ -1,7 +1,7 @@
 F1TENTH Slash MPC
 
-## Demo
-[Watch the MPC visualization](media/demo.mp4)
+## Slash MPC Demo
+[Video](media/slash_mpc_11162025_2.mp4)
 
 
 F1TENTH Autonomous Driving Bring-Up
