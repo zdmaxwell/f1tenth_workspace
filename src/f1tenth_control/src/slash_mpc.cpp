@@ -23,7 +23,8 @@ public:
         std::string home = std::getenv("HOME");
         loadCenterline(home + "/f1tenth_ws/bag_files/teleop/extracted_data/centerline_drive_data_0502_1050.csv");
 
-        // Subscribing to IsaacSim-provided odometry for now without any estimation
+        // Subscribers
+        // IsaacSim-provided odometry for now without any estimation
         pose_sub_ = this->create_subscription<nav_msgs::msg::Odometry>(
             "/odom", 10,
             [this](nav_msgs::msg::Odometry::SharedPtr msg)
@@ -31,11 +32,14 @@ public:
                 this->poseCallback(msg);
             });
 
-        // Publish velocity commands from the MPC controller
+        // Publishers
+        // Velocity commands from the MPC controller
         cmd_pub_ = this->create_publisher<ackermann_msgs::msg::AckermannDriveStamped>(
             "/ackermann_cmd", 10);
+        // Green markers to visualize the local waypoints
         centerline_marker_pub_ = this->create_publisher<visualization_msgs::msg::Marker>(
             "/mpc/centerline_points", 10);
+        // Red markers to visualize the fitted path
         fit_marker_pub_ = this->create_publisher<visualization_msgs::msg::Marker>(
             "/mpc/polyfit", 10);
 
@@ -78,63 +82,75 @@ private:
     }
 
     void poseCallback(const nav_msgs::msg::Odometry::SharedPtr msg)
-    {
+    {   
+        // Phase 1 (Get current state): Get the car's current state
         // Get x, y position states from odometry msg
+        // Refers to the car's x/y position in the global frame (same as centerline)
         double px = msg->pose.pose.position.x;
         double py = msg->pose.pose.position.y;
 
         // Get yaw from the orientation quaternion
+        // psi: which way the car is facing (yaw)
         tf2::Quaternion q(
             msg->pose.pose.orientation.x,
             msg->pose.pose.orientation.y,
             msg->pose.pose.orientation.z,
             msg->pose.pose.orientation.w);
+
+        // Convert quaternion to roll, pitch, yaw
+        // pass by reference here (roll and pitch aren't used for now)
         double roll, pitch, psi;
         tf2::Matrix3x3(q).getRPY(roll, pitch, psi);
 
-        // TODO - MPC Solver goes below to generate control output
+        // Current forward speed from odometry (m/s)
         double v = msg->twist.twist.linear.x;
+        // Phase 1 (Get current state): Complete
 
-        const double max_forward_range = 30.0;
+        // Phase 2 (Localize/Fit the path): Find the closest waypoint and generate local waypoints
+        const double max_forward_range = 30.0; // in meters
         const size_t max_points = 30;
 
-        // locate closest waypoint to current pose
+        // Locate the closest waypoint to the current pose
         size_t closest_idx = 0;
-        double min_dist_sq = std::numeric_limits<double>::max();
+        double min_dist_sq = std::numeric_limits<double>::max(); 
         for (size_t i = 0; i < ptsx_.size(); ++i)
         {
-            double dx = ptsx_[i] - px;
-            double dy = ptsy_[i] - py;
-            double dist_sq = dx * dx + dy * dy;
-            if (dist_sq < min_dist_sq)
+            double dx = ptsx_[i] - px; // difference in x between waypoint and car
+            double dy = ptsy_[i] - py; // difference in y between waypoint and car
+            // squared distance between waypoint and car
+            // note: computing squared distance instead of distance to avoid square root operation on each iteration
+            double dist_sq = dx * dx + dy * dy; 
+            if (dist_sq < min_dist_sq) // if current waypoint is closer than the previous closest waypoint
             {
-                min_dist_sq = dist_sq;
-                closest_idx = i;
+                min_dist_sq = dist_sq; // update the closest waypoint
+                closest_idx = i; // update the index of the closest waypoint
             }
         }
 
-        std::vector<double> ptsx_local;
-        std::vector<double> ptsy_local;
+        std::vector<double> ptsx_local; // local waypoints in the car's body frame
+        std::vector<double> ptsy_local; // local waypoints in the car's body frame
         ptsx_local.reserve(max_points);
         ptsy_local.reserve(max_points);
 
         size_t samples_checked = 0;
         while (ptsx_local.size() < max_points && samples_checked < ptsx_.size())
         {
-            size_t idx = (closest_idx + samples_checked) % ptsx_.size();
+            size_t idx = (closest_idx + samples_checked) % ptsx_.size(); // needed because the track is circular
             samples_checked++;
 
-            double dx = ptsx_[idx] - px;
-            double dy = ptsy_[idx] - py;
+            double dx = ptsx_[idx] - px; // difference in x between waypoint and car
+            double dy = ptsy_[idx] - py; // difference in y between waypoint and car
 
-            double x_local = dx * cos(-psi) - dy * sin(-psi); // forward component
-            double y_local = dx * sin(-psi) + dy * cos(-psi); // lateral component
+            double x_local = dx * cos(-psi) - dy * sin(-psi); // get the x position of the waypoint in the car's body frame
+            double y_local = dx * sin(-psi) + dy * cos(-psi); // get the y position of the waypoint in the car's body frame
 
             if (x_local < 0.0 || x_local > max_forward_range)
             {
                 continue;
             }
 
+            // vectors representing the forward (x) and lateral (y) distance to waypoint[i]
+            // each poseCallback call results in a new set of local waypoints for that time step
             ptsx_local.push_back(x_local);
             ptsy_local.push_back(y_local);
         }
@@ -235,7 +251,9 @@ private:
 
 int main(int argc, char **argv)
 {
+    // Initialize the ROS 2 client library
     rclcpp::init(argc, argv);
+    // Construct the MPCNode and spin until shutdown
     rclcpp::spin(std::make_shared<MPCNode>());
     rclcpp::shutdown();
     return 0;
