@@ -50,6 +50,39 @@ private:
     std::vector<double> ptsx_;
     std::vector<double> ptsy_;
 
+    struct CarState 
+    {
+        double px;
+        double py;
+        double psi;
+        double v;
+    };
+
+    CarState getCurrentState(const nav_msgs::msg::Odometry::SharedPtr msg) const
+    {
+        // Phase 1 (Get current state): Get the car's current state
+        // Get x, y position states from odometry msg
+        // Refers to the car's x/y position in the global frame (same as centerline)
+        const double px = msg->pose.pose.position.x;
+        const double py = msg->pose.pose.position.y;
+
+        // Get yaw from the orientation quaternion
+        // psi: which way the car is facing (yaw)
+        tf2::Quaternion q(
+            msg->pose.pose.orientation.x,
+            msg->pose.pose.orientation.y,
+            msg->pose.pose.orientation.z,
+            msg->pose.pose.orientation.w);
+
+        double roll, pitch, psi;
+        tf2::Matrix3x3(q).getRPY(roll, pitch, psi);
+
+        // Current forward speed from odometry (m/s)
+        const double v = msg->twist.twist.linear.x;
+
+        return CarState{px, py, psi, v};
+    }
+
     void loadCenterline(const std::string &path)
     {
 
@@ -84,27 +117,11 @@ private:
     void poseCallback(const nav_msgs::msg::Odometry::SharedPtr msg)
     {   
         // Phase 1 (Get current state): Get the car's current state
-        // Get x, y position states from odometry msg
-        // Refers to the car's x/y position in the global frame (same as centerline)
-        double px = msg->pose.pose.position.x;
-        double py = msg->pose.pose.position.y;
-
-        // Get yaw from the orientation quaternion
-        // psi: which way the car is facing (yaw)
-        tf2::Quaternion q(
-            msg->pose.pose.orientation.x,
-            msg->pose.pose.orientation.y,
-            msg->pose.pose.orientation.z,
-            msg->pose.pose.orientation.w);
-
-        // Convert quaternion to roll, pitch, yaw
-        // pass by reference here (roll and pitch aren't used for now)
-        double roll, pitch, psi;
-        tf2::Matrix3x3(q).getRPY(roll, pitch, psi);
-
-        // Current forward speed from odometry (m/s)
-        double v = msg->twist.twist.linear.x;
-        // Phase 1 (Get current state): Complete
+        const CarState current_state = getCurrentState(msg);
+        const double px = current_state.px;
+        const double py = current_state.py;
+        const double psi = current_state.psi;
+        double v = current_state.v;
 
         // Phase 2 (Localize/Fit the path): Find the closest waypoint and generate local waypoints
         const double max_forward_range = 30.0; // in meters
