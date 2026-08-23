@@ -9,6 +9,10 @@ __pycache__/
 
 # VSCode settings
 .vscode/
+.cursor/
 
 # Compile commands
 compile_commands.json
+
+# Local plots
+plots/

@@ -161,25 +161,28 @@ private:
                                  "Insufficient forward waypoints (%zu) for polyfit", ptsx_local.size());
         }
 
-        Eigen::VectorXd ptsx_eigen = Eigen::Map<Eigen::VectorXd>(ptsx_local.data(), ptsx_local.size());
-        Eigen::VectorXd ptsy_eigen = Eigen::Map<Eigen::VectorXd>(ptsy_local.data(), ptsy_local.size());
+        // y = Ac
+        Eigen::VectorXd ptsx_eigen = Eigen::Map<Eigen::VectorXd>(ptsx_local.data(), ptsx_local.size()); // each row of A matrix
+        Eigen::VectorXd ptsy_eigen = Eigen::Map<Eigen::VectorXd>(ptsy_local.data(), ptsy_local.size()); // y column vector
         coeffs_ = polyfit(ptsx_eigen, ptsy_eigen, 3);
         double cte = polyeval(coeffs_, 0.0);  // y error at x=0
-        double epsi = -std::atan(coeffs_[1]); // heading error at x=0
+        double epsi = -std::atan(coeffs_[1]); // heading error at x=0 (the slope of the polynomial at x=0). It will always be x=0 because the car is always at the origin in the body frame.
 
         // Setup state vector: [x, y, psi, v, cte, epsi]
+        // cte: answers is the car to the right or left of the path
+        // epsi: answers if the car's hood facing the same way as the path
         Eigen::VectorXd state(6);
         state << 0.0, 0.0, 0.0, v, cte, epsi;
 
-        // Call the solver
+        // Call the solver with the current state and coefficients
         std::vector<double> result = mpc_.Solve(state, coeffs_);
         publishVisualization(msg->header.stamp, ptsx_local, ptsy_local, coeffs_);
 
-        v += result[1] * dt; // <- simulate updated velocity
+        v += result[1] * dt; // <- simulate updated velocity (odom_v + a0 * 0.1)
 
         // Publish the result
         auto drive_msg = ackermann_msgs::msg::AckermannDriveStamped();
-        drive_msg.drive.steering_angle = result[0]; // delta (steering)
+        drive_msg.drive.steering_angle = result[0];
         drive_msg.drive.speed = v;
         drive_msg.drive.acceleration = result[1];
         cmd_pub_->publish(drive_msg);
