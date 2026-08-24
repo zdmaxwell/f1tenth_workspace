@@ -58,6 +58,12 @@ private:
         double v;
     };
 
+    struct LocalWaypoints 
+    {
+        std::vector<double> ptsx;
+        std::vector<double> ptsy;
+    };
+
     CarState getCurrentState(const nav_msgs::msg::Odometry::SharedPtr msg) const
     {
         // Phase 1 (Get current state): Get the car's current state
@@ -83,47 +89,12 @@ private:
         return CarState{px, py, psi, v};
     }
 
-    void loadCenterline(const std::string &path)
+    LocalWaypoints findLocalWaypoints(const CarState &current_state)
     {
-
-        std::ifstream file(path);
-        if (!file.is_open())
-        {
-            RCLCPP_ERROR(this->get_logger(), "Failed to open file: %s", path.c_str());
-            return;
-        }
-        std::string line;
-        std::getline(file, line);
-
-        while (std::getline(file, line))
-        {
-            std::stringstream ss(line);
-            std::string x_str, y_str;
-            if (std::getline(ss, x_str, ',') && std::getline(ss, y_str))
-            {
-                try
-                {
-                    ptsx_.push_back(std::stod(x_str));
-                    ptsy_.push_back(std::stod(y_str));
-                }
-                catch (const std::invalid_argument &e)
-                {
-                    RCLCPP_WARN(this->get_logger(), "Skipping invalid row: '%s'", line.c_str());
-                }
-            }
-        }
-    }
-
-    void poseCallback(const nav_msgs::msg::Odometry::SharedPtr msg)
-    {   
-        // Phase 1 (Get current state): Get the car's current state
-        const CarState current_state = getCurrentState(msg);
         const double px = current_state.px;
         const double py = current_state.py;
         const double psi = current_state.psi;
-        double v = current_state.v;
 
-        // Phase 2 (Localize/Fit the path): Find the closest waypoint and generate local waypoints
         const double max_forward_range = 30.0; // in meters
         const size_t max_points = 30;
 
@@ -178,9 +149,52 @@ private:
                                  "Insufficient forward waypoints (%zu) for polyfit", ptsx_local.size());
         }
 
+        return LocalWaypoints{ptsx_local, ptsy_local};
+    }
+
+    void loadCenterline(const std::string &path)
+    {
+
+        std::ifstream file(path);
+        if (!file.is_open())
+        {
+            RCLCPP_ERROR(this->get_logger(), "Failed to open file: %s", path.c_str());
+            return;
+        }
+        std::string line;
+        std::getline(file, line);
+
+        while (std::getline(file, line))
+        {
+            std::stringstream ss(line);
+            std::string x_str, y_str;
+            if (std::getline(ss, x_str, ',') && std::getline(ss, y_str))
+            {
+                try
+                {
+                    ptsx_.push_back(std::stod(x_str));
+                    ptsy_.push_back(std::stod(y_str));
+                }
+                catch (const std::invalid_argument &e)
+                {
+                    RCLCPP_WARN(this->get_logger(), "Skipping invalid row: '%s'", line.c_str());
+                }
+            }
+        }
+    }
+
+    void poseCallback(const nav_msgs::msg::Odometry::SharedPtr msg)
+    {   
+        // Phase 1 (Get current state): Get the car's current state
+        const CarState current_state = getCurrentState(msg);
+        double v = current_state.v;
+
+        // Phase 2 (Localize/Fit the path): Find the closest waypoint and return the local waypoints
+        LocalWaypoints local_waypoints = findLocalWaypoints(current_state);
+
         // y = Ac
-        Eigen::VectorXd ptsx_eigen = Eigen::Map<Eigen::VectorXd>(ptsx_local.data(), ptsx_local.size()); // each row of A matrix
-        Eigen::VectorXd ptsy_eigen = Eigen::Map<Eigen::VectorXd>(ptsy_local.data(), ptsy_local.size()); // y column vector
+        Eigen::VectorXd ptsx_eigen = Eigen::Map<Eigen::VectorXd>(local_waypoints.ptsx.data(), local_waypoints.ptsx.size()); // each row of A matrix
+        Eigen::VectorXd ptsy_eigen = Eigen::Map<Eigen::VectorXd>(local_waypoints.ptsy.data(), local_waypoints.ptsy.size()); // y column vector
         coeffs_ = polyfit(ptsx_eigen, ptsy_eigen, 3);
         double cte = polyeval(coeffs_, 0.0);  // y error at x=0
         double epsi = -std::atan(coeffs_[1]); // heading error at x=0 (the slope of the polynomial at x=0). It will always be x=0 because the car is always at the origin in the body frame.
@@ -193,7 +207,7 @@ private:
 
         // Call the solver with the current state and coefficients
         std::vector<double> result = mpc_.Solve(state, coeffs_);
-        publishVisualization(msg->header.stamp, ptsx_local, ptsy_local, coeffs_);
+        publishVisualization(msg->header.stamp, local_waypoints.ptsx, local_waypoints.ptsy, coeffs_);
 
         v += result[1] * dt; // <- simulate updated velocity (odom_v + a0 * 0.1)
 
