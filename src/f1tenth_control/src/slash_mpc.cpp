@@ -25,7 +25,7 @@ class MPCNode : public rclcpp::Node {
 
         // Subscribers
         // IsaacSim-provided odometry for now without any estimation
-        pose_sub_ = this->create_subscription<nav_msgs::msg::Odometry>(
+        odom_sub_ = this->create_subscription<nav_msgs::msg::Odometry>(
             "/odom",
             10,
             [this](nav_msgs::msg::Odometry::SharedPtr msg) { this->odomCallback(msg); }
@@ -48,9 +48,6 @@ class MPCNode : public rclcpp::Node {
     }
 
   private:
-    std::vector<double> ptsx_;
-    std::vector<double> ptsy_;
-
     struct CarState {
         double px;
         double py;
@@ -94,7 +91,7 @@ class MPCNode : public rclcpp::Node {
         return CarState{px, py, psi, v};
     }
 
-    LocalWaypoints findLocalWaypoints(const CarState &current_state) {
+    LocalWaypoints findLocalWaypoints(const CarState &current_state) const {
         const double px = current_state.px;
         const double py = current_state.py;
         const double psi = current_state.psi;
@@ -152,9 +149,10 @@ class MPCNode : public rclcpp::Node {
         }
 
         if (ptsx_local.size() < 6) {
+            static rclcpp::Clock throttle_clock{RCL_STEADY_TIME};
             RCLCPP_WARN_THROTTLE(
                 this->get_logger(),
-                *this->get_clock(),
+                throttle_clock,
                 1000,
                 "Insufficient forward waypoints (%zu) for polyfit",
                 ptsx_local.size()
@@ -214,6 +212,9 @@ class MPCNode : public rclcpp::Node {
 
         // Phase 2 (Localize/Fit the path): Find the closest waypoint and return the local waypoints
         LocalWaypoints local_waypoints = findLocalWaypoints(current_state);
+        if (local_waypoints.ptsx.size() < 6) {
+            return;
+        }
         PathFit path_fit = fitToPath(local_waypoints);
 
         // Setup state vector: [x, y, psi, v, cte, epsi]
@@ -222,38 +223,28 @@ class MPCNode : public rclcpp::Node {
         Eigen::VectorXd state(6);
         state << 0.0, 0.0, 0.0, v, path_fit.cte, path_fit.epsi;
 
-        // Call the solver with the current state and coefficients
+        // Phase 3 (Solve for the optimal control inputs)
         std::vector<double> result = mpc_.Solve(state, path_fit.coeffs);
-        publishVisualization(
-            msg->header.stamp,
-            local_waypoints.ptsx,
-            local_waypoints.ptsy,
-            path_fit.coeffs
-        );
+        publishVisualization(local_waypoints, path_fit);
 
-        v += result[1] * dt; // <- simulate updated velocity (odom_v + a0 * 0.1)
-
-        // Publish the result
+        // Phase 4 (Publish the result)
         auto drive_msg = ackermann_msgs::msg::AckermannDriveStamped();
+        drive_msg.header.stamp = msg->header.stamp;
+        drive_msg.header.frame_id = "base_link";
         drive_msg.drive.steering_angle = result[0];
-        drive_msg.drive.speed = v;
+        drive_msg.drive.speed = current_state.v;
         drive_msg.drive.acceleration = result[1];
         cmd_pub_->publish(drive_msg);
     }
 
-    void publishVisualization(
-        const rclcpp::Time &stamp,
-        const std::vector<double> &ptsx_local,
-        const std::vector<double> &ptsy_local,
-        const Eigen::VectorXd &coeffs
-    ) {
+    void publishVisualization(const LocalWaypoints &local_waypoints, const PathFit &path_fit) {
         if (!centerline_marker_pub_ || !fit_marker_pub_) {
             return;
         }
 
         visualization_msgs::msg::Marker centerline_marker;
         centerline_marker.header.frame_id = "base_link";
-        centerline_marker.header.stamp = stamp;
+        centerline_marker.header.stamp = this->now();
         centerline_marker.ns = "mpc_centerline";
         centerline_marker.id = 0;
         centerline_marker.type = visualization_msgs::msg::Marker::POINTS;
@@ -263,16 +254,16 @@ class MPCNode : public rclcpp::Node {
         centerline_marker.color.g = 1.0f;
         centerline_marker.color.a = 1.0f;
 
-        for (size_t i = 0; i < ptsx_local.size(); ++i) {
+        for (size_t i = 0; i < local_waypoints.ptsx.size(); ++i) {
             geometry_msgs::msg::Point p;
-            p.x = ptsx_local[i];
-            p.y = ptsy_local[i];
+            p.x = local_waypoints.ptsx[i];
+            p.y = local_waypoints.ptsy[i];
             centerline_marker.points.push_back(p);
         }
 
         visualization_msgs::msg::Marker fit_marker;
         fit_marker.header.frame_id = "base_link";
-        fit_marker.header.stamp = stamp;
+        fit_marker.header.stamp = this->now();
         fit_marker.ns = "mpc_polyfit";
         fit_marker.id = 0;
         fit_marker.type = visualization_msgs::msg::Marker::LINE_STRIP;
@@ -286,7 +277,7 @@ class MPCNode : public rclcpp::Node {
         for (double x = 0.0; x <= max_x; x += step) {
             geometry_msgs::msg::Point p;
             p.x = x;
-            p.y = polyeval(coeffs, x);
+            p.y = polyeval(path_fit.coeffs, x);
             fit_marker.points.push_back(p);
         }
 
@@ -295,9 +286,10 @@ class MPCNode : public rclcpp::Node {
     }
 
     MPC mpc_;
-    Eigen::VectorXd coeffs_;
+    std::vector<double> ptsx_;
+    std::vector<double> ptsy_;
 
-    rclcpp::Subscription<nav_msgs::msg::Odometry>::SharedPtr pose_sub_;
+    rclcpp::Subscription<nav_msgs::msg::Odometry>::SharedPtr odom_sub_;
     rclcpp::Publisher<ackermann_msgs::msg::AckermannDriveStamped>::SharedPtr cmd_pub_;
     rclcpp::Publisher<visualization_msgs::msg::Marker>::SharedPtr centerline_marker_pub_;
     rclcpp::Publisher<visualization_msgs::msg::Marker>::SharedPtr fit_marker_pub_;
