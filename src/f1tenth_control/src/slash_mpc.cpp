@@ -9,8 +9,11 @@
 #include <geometry_msgs/msg/point.hpp>
 #include <geometry_msgs/msg/twist.hpp>
 #include <limits>
+#include <memory>
 #include <nav_msgs/msg/odometry.hpp>
 #include <rclcpp/rclcpp.hpp>
+#include <stdexcept>
+#include <string>
 #include <tf2_geometry_msgs/tf2_geometry_msgs.hpp>
 #include <visualization_msgs/msg/marker.hpp>
 
@@ -18,36 +21,120 @@
 class MPCNode : public rclcpp::Node {
   public:
     MPCNode() : Node("slash_mpc") {
-        std::string home = std::getenv("HOME");
-        loadCenterline(
-            home + "/f1tenth_ws/bag_files/teleop/extracted_data/centerline_drive_data_0502_1050.csv"
-        );
+        const auto centerline_csv = this->declare_parameter<std::string>("centerline_csv");
+        base_frame_ = this->declare_parameter<std::string>("base_frame");
+        max_forward_range_ = this->declare_parameter<double>("path.max_forward_range");
+        const auto max_waypoints = this->declare_parameter<int>("path.max_waypoints");
+        const auto min_waypoints = this->declare_parameter<int>("path.min_waypoints");
+        visualization_enabled_ = this->declare_parameter<bool>("visualization.enabled");
+        marker_point_size_ = this->declare_parameter<double>("visualization.point_size");
+        marker_line_width_ = this->declare_parameter<double>("visualization.line_width");
+        marker_path_length_ = this->declare_parameter<double>("visualization.path_length");
+        marker_sample_step_ = this->declare_parameter<double>("visualization.sample_step");
+
+        const auto horizon_steps = this->declare_parameter<int>("mpc.horizon_steps");
+        MPCConfig mpc_config{
+            static_cast<size_t>(horizon_steps),
+            this->declare_parameter<double>("mpc.timestep"),
+            this->declare_parameter<double>("vehicle.wheelbase"),
+            this->declare_parameter<double>("mpc.reference_velocity"),
+            this->declare_parameter<double>("mpc.weights.cte"),
+            this->declare_parameter<double>("mpc.weights.heading_error"),
+            this->declare_parameter<double>("mpc.weights.velocity"),
+            this->declare_parameter<double>("mpc.weights.steering"),
+            this->declare_parameter<double>("mpc.weights.acceleration"),
+            this->declare_parameter<double>("mpc.weights.steering_rate"),
+            this->declare_parameter<double>("mpc.weights.acceleration_rate"),
+            this->declare_parameter<double>("limits.max_steering_angle"),
+            this->declare_parameter<double>("limits.min_acceleration"),
+            this->declare_parameter<double>("limits.max_acceleration"),
+            this->declare_parameter<double>("limits.min_velocity"),
+            this->declare_parameter<double>("limits.max_velocity"),
+            this->declare_parameter<double>("mpc.solver_max_cpu_time")
+        };
+
+        validateParameters(centerline_csv, horizon_steps, max_waypoints, min_waypoints, mpc_config);
+        max_waypoints_ = static_cast<size_t>(max_waypoints);
+        min_waypoints_ = static_cast<size_t>(min_waypoints);
+        loadCenterline(centerline_csv);
+        mpc_ = std::make_unique<MPC>(mpc_config);
 
         // Subscribers
         // IsaacSim-provided odometry for now without any estimation
         odom_sub_ = this->create_subscription<nav_msgs::msg::Odometry>(
-            "/odom",
+            "odom",
             10,
             [this](nav_msgs::msg::Odometry::SharedPtr msg) { this->odomCallback(msg); }
         );
 
         // Publishers
         // Velocity commands from the MPC controller
-        cmd_pub_ = this->create_publisher<ackermann_msgs::msg::AckermannDriveStamped>(
-            "/ackermann_cmd",
-            10
-        );
-        // Green markers to visualize the local waypoints
-        centerline_marker_pub_ =
-            this->create_publisher<visualization_msgs::msg::Marker>("/mpc/centerline_points", 10);
-        // Red markers to visualize the fitted path
-        fit_marker_pub_ =
-            this->create_publisher<visualization_msgs::msg::Marker>("/mpc/polyfit", 10);
+        cmd_pub_ =
+            this->create_publisher<ackermann_msgs::msg::AckermannDriveStamped>("ackermann_cmd", 10);
 
-        RCLCPP_INFO(this->get_logger(), "MPC Node initialized");
+        if (visualization_enabled_) {
+            // Green markers to visualize the local waypoints
+            centerline_marker_pub_ = this->create_publisher<visualization_msgs::msg::Marker>(
+                "mpc/centerline_points",
+                10
+            );
+            // Red markers to visualize the fitted path
+            fit_marker_pub_ =
+                this->create_publisher<visualization_msgs::msg::Marker>("mpc/polyfit", 10);
+        }
+
+        RCLCPP_INFO(
+            this->get_logger(),
+            "MPC Node initialized with centerline '%s'",
+            centerline_csv.c_str()
+        );
     }
 
   private:
+    void validateParameters(
+        const std::string &centerline_csv,
+        int horizon_steps,
+        int max_waypoints,
+        int min_waypoints,
+        const MPCConfig &mpc_config
+    ) const {
+        if (centerline_csv.empty()) {
+            throw std::invalid_argument("Parameter 'centerline_csv' must not be empty");
+        }
+        if (base_frame_.empty()) {
+            throw std::invalid_argument("Parameter 'base_frame' must not be empty");
+        }
+        if (horizon_steps < 3) {
+            throw std::invalid_argument("Parameter 'mpc.horizon_steps' must be at least 3");
+        }
+        if (min_waypoints < 4 || max_waypoints < min_waypoints) {
+            throw std::invalid_argument(
+                "Path waypoint parameters must satisfy 4 <= min_waypoints <= max_waypoints"
+            );
+        }
+        if (max_forward_range_ <= 0.0 || marker_point_size_ <= 0.0 || marker_line_width_ <= 0.0 ||
+            marker_path_length_ <= 0.0 || marker_sample_step_ <= 0.0) {
+            throw std::invalid_argument("Distance and visualization parameters must be positive");
+        }
+        if (mpc_config.timestep <= 0.0 || mpc_config.wheelbase <= 0.0 ||
+            mpc_config.solver_max_cpu_time <= 0.0) {
+            throw std::invalid_argument("MPC timestep, wheelbase, and CPU time must be positive");
+        }
+        if (mpc_config.weight_cte < 0.0 || mpc_config.weight_heading_error < 0.0 ||
+            mpc_config.weight_velocity < 0.0 || mpc_config.weight_steering < 0.0 ||
+            mpc_config.weight_acceleration < 0.0 || mpc_config.weight_steering_rate < 0.0 ||
+            mpc_config.weight_acceleration_rate < 0.0) {
+            throw std::invalid_argument("MPC cost weights must not be negative");
+        }
+        if (mpc_config.min_acceleration > mpc_config.max_acceleration ||
+            mpc_config.min_velocity > mpc_config.max_velocity ||
+            mpc_config.max_steering_angle <= 0.0 ||
+            mpc_config.reference_velocity < mpc_config.min_velocity ||
+            mpc_config.reference_velocity > mpc_config.max_velocity) {
+            throw std::invalid_argument("Invalid vehicle control limits");
+        }
+    }
+
     struct CarState {
         double px;
         double py;
@@ -96,9 +183,6 @@ class MPCNode : public rclcpp::Node {
         const double py = current_state.py;
         const double psi = current_state.psi;
 
-        const double max_forward_range = 30.0; // in meters
-        const size_t max_points = 30;
-
         // Locate the closest waypoint to the current pose
         size_t closest_idx = 0;
         double min_dist_sq = std::numeric_limits<double>::max();
@@ -119,11 +203,11 @@ class MPCNode : public rclcpp::Node {
 
         std::vector<double> ptsx_local; // local waypoints in the car's body frame
         std::vector<double> ptsy_local; // local waypoints in the car's body frame
-        ptsx_local.reserve(max_points);
-        ptsy_local.reserve(max_points);
+        ptsx_local.reserve(max_waypoints_);
+        ptsy_local.reserve(max_waypoints_);
 
         size_t samples_checked = 0;
-        while (ptsx_local.size() < max_points && samples_checked < ptsx_.size()) {
+        while (ptsx_local.size() < max_waypoints_ && samples_checked < ptsx_.size()) {
             size_t idx = (closest_idx + samples_checked) %
                          ptsx_.size(); // needed because the track is circular
             samples_checked++;
@@ -138,7 +222,7 @@ class MPCNode : public rclcpp::Node {
                 dx * sin(-psi) +
                 dy * cos(-psi); // get the y position of the waypoint in the car's body frame
 
-            if (x_local < 0.0 || x_local > max_forward_range) {
+            if (x_local < 0.0 || x_local > max_forward_range_) {
                 continue;
             }
 
@@ -148,7 +232,7 @@ class MPCNode : public rclcpp::Node {
             ptsy_local.push_back(y_local);
         }
 
-        if (ptsx_local.size() < 6) {
+        if (ptsx_local.size() < min_waypoints_) {
             static rclcpp::Clock throttle_clock{RCL_STEADY_TIME};
             RCLCPP_WARN_THROTTLE(
                 this->get_logger(),
@@ -185,8 +269,7 @@ class MPCNode : public rclcpp::Node {
 
         std::ifstream file(path);
         if (!file.is_open()) {
-            RCLCPP_ERROR(this->get_logger(), "Failed to open file: %s", path.c_str());
-            return;
+            throw std::runtime_error("Failed to open centerline CSV: " + path);
         }
         std::string line;
         std::getline(file, line);
@@ -203,6 +286,12 @@ class MPCNode : public rclcpp::Node {
                 }
             }
         }
+
+        if (ptsx_.size() < min_waypoints_) {
+            throw std::runtime_error(
+                "Centerline CSV contains fewer usable rows than path.min_waypoints"
+            );
+        }
     }
 
     void odomCallback(const nav_msgs::msg::Odometry::SharedPtr msg) {
@@ -212,7 +301,7 @@ class MPCNode : public rclcpp::Node {
 
         // Phase 2 (Localize/Fit the path): Find the closest waypoint and return the local waypoints
         LocalWaypoints local_waypoints = findLocalWaypoints(current_state);
-        if (local_waypoints.ptsx.size() < 6) {
+        if (local_waypoints.ptsx.size() < min_waypoints_) {
             return;
         }
         PathFit path_fit = fitToPath(local_waypoints);
@@ -224,16 +313,21 @@ class MPCNode : public rclcpp::Node {
         state << 0.0, 0.0, 0.0, v, path_fit.cte, path_fit.epsi;
 
         // Phase 3 (Solve for the optimal control inputs)
-        std::vector<double> result = mpc_.Solve(state, path_fit.coeffs);
+        MPCResult result = mpc_->Solve(state, path_fit.coeffs);
+        if (!result.success) {
+            static rclcpp::Clock throttle_clock{RCL_STEADY_TIME};
+            RCLCPP_ERROR_THROTTLE(this->get_logger(), throttle_clock, 1000, "MPC failed to solve");
+            return;
+        }
         publishVisualization(local_waypoints, path_fit);
 
         // Phase 4 (Publish the result)
         auto drive_msg = ackermann_msgs::msg::AckermannDriveStamped();
         drive_msg.header.stamp = msg->header.stamp;
-        drive_msg.header.frame_id = "base_link";
-        drive_msg.drive.steering_angle = result[0];
-        drive_msg.drive.speed = current_state.v;
-        drive_msg.drive.acceleration = result[1];
+        drive_msg.header.frame_id = base_frame_;
+        drive_msg.drive.steering_angle = result.steering_angle;
+        drive_msg.drive.speed = result.velocity;
+        drive_msg.drive.acceleration = result.acceleration;
         cmd_pub_->publish(drive_msg);
     }
 
@@ -243,14 +337,14 @@ class MPCNode : public rclcpp::Node {
         }
 
         visualization_msgs::msg::Marker centerline_marker;
-        centerline_marker.header.frame_id = "base_link";
+        centerline_marker.header.frame_id = base_frame_;
         centerline_marker.header.stamp = this->now();
         centerline_marker.ns = "mpc_centerline";
         centerline_marker.id = 0;
         centerline_marker.type = visualization_msgs::msg::Marker::POINTS;
         centerline_marker.action = visualization_msgs::msg::Marker::ADD;
-        centerline_marker.scale.x = 0.07;
-        centerline_marker.scale.y = 0.07;
+        centerline_marker.scale.x = marker_point_size_;
+        centerline_marker.scale.y = marker_point_size_;
         centerline_marker.color.g = 1.0f;
         centerline_marker.color.a = 1.0f;
 
@@ -262,19 +356,17 @@ class MPCNode : public rclcpp::Node {
         }
 
         visualization_msgs::msg::Marker fit_marker;
-        fit_marker.header.frame_id = "base_link";
+        fit_marker.header.frame_id = base_frame_;
         fit_marker.header.stamp = this->now();
         fit_marker.ns = "mpc_polyfit";
         fit_marker.id = 0;
         fit_marker.type = visualization_msgs::msg::Marker::LINE_STRIP;
         fit_marker.action = visualization_msgs::msg::Marker::ADD;
-        fit_marker.scale.x = 0.05;
+        fit_marker.scale.x = marker_line_width_;
         fit_marker.color.r = 1.0f;
         fit_marker.color.a = 1.0f;
 
-        const double max_x = 15.0;
-        const double step = 0.3;
-        for (double x = 0.0; x <= max_x; x += step) {
+        for (double x = 0.0; x <= marker_path_length_; x += marker_sample_step_) {
             geometry_msgs::msg::Point p;
             p.x = x;
             p.y = polyeval(path_fit.coeffs, x);
@@ -285,9 +377,19 @@ class MPCNode : public rclcpp::Node {
         fit_marker_pub_->publish(fit_marker);
     }
 
-    MPC mpc_;
+    std::unique_ptr<MPC> mpc_;
     std::vector<double> ptsx_;
     std::vector<double> ptsy_;
+
+    std::string base_frame_;
+    double max_forward_range_;
+    size_t max_waypoints_;
+    size_t min_waypoints_;
+    bool visualization_enabled_;
+    double marker_point_size_;
+    double marker_line_width_;
+    double marker_path_length_;
+    double marker_sample_step_;
 
     rclcpp::Subscription<nav_msgs::msg::Odometry>::SharedPtr odom_sub_;
     rclcpp::Publisher<ackermann_msgs::msg::AckermannDriveStamped>::SharedPtr cmd_pub_;

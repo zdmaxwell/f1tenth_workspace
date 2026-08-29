@@ -1,0 +1,39 @@
+slash_mpc:
+  ros__parameters:
+    base_frame: base_link
+
+    path:
+      max_forward_range: 30.0
+      max_waypoints: 30
+      min_waypoints: 6
+
+    vehicle:
+      wheelbase: 2.67
+
+    mpc:
+      horizon_steps: 10
+      timestep: 0.1
+      reference_velocity: 2.5
+      solver_max_cpu_time: 0.5
+      weights:
+        cte: 2000.0
+        heading_error: 2000.0
+        velocity: 10000.0
+        steering: 10.0
+        acceleration: 10.0
+        steering_rate: 100.0
+        acceleration_rate: 10.0
+
+    limits:
+      max_steering_angle: 0.436332
+      min_acceleration: -0.5
+      max_acceleration: 1.0
+      min_velocity: 0.0
+      max_velocity: 2.5
+
+    visualization:
+      enabled: true
+      point_size: 0.07
+      line_width: 0.05
+      path_length: 15.0
+      sample_step: 0.3

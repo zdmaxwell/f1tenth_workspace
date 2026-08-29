@@ -25,15 +25,15 @@ include_directories(${CppAD_INCLUDE_DIRS})
 include_directories(include)
 
 # Build an executable named 'slash_mpc' from the source file at src/slash_mpc.cpp
-# This will be the main entry point for the MPC control node 
-add_executable(slash_mpc 
-    src/slash_mpc.cpp
-    src/mpc.cpp
-  )
+# This will be the main entry point for the MPC control node
+add_executable(slash_mpc
+  src/slash_mpc.cpp
+  src/mpc.cpp
+)
 
 # Link the executable against the rclcpp library (ROS 2 C++ client library)
 # This gives the node access to ROS 2 APIs like publishing, subscribing, etc.
-ament_target_dependencies(slash_mpc 
+ament_target_dependencies(slash_mpc
   rclcpp
   Eigen3
   geometry_msgs
@@ -61,6 +61,7 @@ endif()
 # Install the compiled slash_mpc binary into the ROS2 install path
 # This ensures it can be run using the `ros2 run f1tenth_control slash_mpc` command
 install(TARGETS slash_mpc DESTINATION lib/${PROJECT_NAME})
+install(DIRECTORY config launch DESTINATION share/${PROJECT_NAME})
 
 if(BUILD_TESTING)
   find_package(ament_lint_auto REQUIRED)
