@@ -1,71 +1,75 @@
-#include <rclcpp/rclcpp.hpp>
-#include <IpIpoptApplication.hpp>
-#include <geometry_msgs/msg/twist.hpp>
-#include <nav_msgs/msg/odometry.hpp>
-#include <tf2_geometry_msgs/tf2_geometry_msgs.hpp>
-#include <cmath>
-#include <ackermann_msgs/msg/ackermann_drive_stamped.hpp>
-#include <visualization_msgs/msg/marker.hpp>
-#include <geometry_msgs/msg/point.hpp>
-#include <fstream>
+#include "f1tenth_control/mpc.h"
+#include "f1tenth_control/utils.h"
 #include <Eigen/Dense>
 #include <Eigen/QR>
+#include <IpIpoptApplication.hpp>
+#include <ackermann_msgs/msg/ackermann_drive_stamped.hpp>
+#include <cmath>
+#include <fstream>
+#include <geometry_msgs/msg/point.hpp>
+#include <geometry_msgs/msg/twist.hpp>
 #include <limits>
-#include "f1tenth_control/utils.h"
-#include "f1tenth_control/mpc.h"
+#include <nav_msgs/msg/odometry.hpp>
+#include <rclcpp/rclcpp.hpp>
+#include <tf2_geometry_msgs/tf2_geometry_msgs.hpp>
+#include <visualization_msgs/msg/marker.hpp>
 
 // Model Predictive Controller for Slash 2WD
-class MPCNode : public rclcpp::Node
-{
-public:
-    MPCNode() : Node("slash_mpc")
-    {
+class MPCNode : public rclcpp::Node {
+  public:
+    MPCNode() : Node("slash_mpc") {
         std::string home = std::getenv("HOME");
-        loadCenterline(home + "/f1tenth_ws/bag_files/teleop/extracted_data/centerline_drive_data_0502_1050.csv");
+        loadCenterline(
+            home + "/f1tenth_ws/bag_files/teleop/extracted_data/centerline_drive_data_0502_1050.csv"
+        );
 
         // Subscribers
         // IsaacSim-provided odometry for now without any estimation
         pose_sub_ = this->create_subscription<nav_msgs::msg::Odometry>(
-            "/odom", 10,
-            [this](nav_msgs::msg::Odometry::SharedPtr msg)
-            {
-                this->poseCallback(msg);
-            });
+            "/odom",
+            10,
+            [this](nav_msgs::msg::Odometry::SharedPtr msg) { this->odomCallback(msg); }
+        );
 
         // Publishers
         // Velocity commands from the MPC controller
         cmd_pub_ = this->create_publisher<ackermann_msgs::msg::AckermannDriveStamped>(
-            "/ackermann_cmd", 10);
+            "/ackermann_cmd",
+            10
+        );
         // Green markers to visualize the local waypoints
-        centerline_marker_pub_ = this->create_publisher<visualization_msgs::msg::Marker>(
-            "/mpc/centerline_points", 10);
+        centerline_marker_pub_ =
+            this->create_publisher<visualization_msgs::msg::Marker>("/mpc/centerline_points", 10);
         // Red markers to visualize the fitted path
-        fit_marker_pub_ = this->create_publisher<visualization_msgs::msg::Marker>(
-            "/mpc/polyfit", 10);
+        fit_marker_pub_ =
+            this->create_publisher<visualization_msgs::msg::Marker>("/mpc/polyfit", 10);
 
         RCLCPP_INFO(this->get_logger(), "MPC Node initialized");
     }
 
-private:
+  private:
     std::vector<double> ptsx_;
     std::vector<double> ptsy_;
 
-    struct CarState 
-    {
+    struct CarState {
         double px;
         double py;
         double psi;
         double v;
     };
 
-    struct LocalWaypoints 
-    {
+    struct LocalWaypoints {
         std::vector<double> ptsx;
         std::vector<double> ptsy;
     };
 
-    CarState getCurrentState(const nav_msgs::msg::Odometry::SharedPtr msg) const
-    {
+    struct PathFit {
+        Eigen::VectorXd coeffs;
+        double cte;
+        double epsi;
+    };
+
+    CarState getCurrentState(const nav_msgs::msg::Odometry::SharedPtr msg) const {
         // Phase 1 (Get current state): Get the car's current state
         // Get x, y position states from odometry msg
         // Refers to the car's x/y position in the global frame (same as centerline)
@@ -78,7 +82,8 @@ private:
             msg->pose.pose.orientation.x,
             msg->pose.pose.orientation.y,
             msg->pose.pose.orientation.z,
-            msg->pose.pose.orientation.w);
+            msg->pose.pose.orientation.w
+        );
 
         double roll, pitch, psi;
         tf2::Matrix3x3(q).getRPY(roll, pitch, psi);
@@ -89,8 +94,7 @@ private:
         return CarState{px, py, psi, v};
     }
 
-    LocalWaypoints findLocalWaypoints(const CarState &current_state)
-    {
+    LocalWaypoints findLocalWaypoints(const CarState &current_state) {
         const double px = current_state.px;
         const double py = current_state.py;
         const double psi = current_state.psi;
@@ -100,18 +104,19 @@ private:
 
         // Locate the closest waypoint to the current pose
         size_t closest_idx = 0;
-        double min_dist_sq = std::numeric_limits<double>::max(); 
-        for (size_t i = 0; i < ptsx_.size(); ++i)
-        {
+        double min_dist_sq = std::numeric_limits<double>::max();
+        for (size_t i = 0; i < ptsx_.size(); ++i) {
             double dx = ptsx_[i] - px; // difference in x between waypoint and car
             double dy = ptsy_[i] - py; // difference in y between waypoint and car
             // squared distance between waypoint and car
-            // note: computing squared distance instead of distance to avoid square root operation on each iteration
-            double dist_sq = dx * dx + dy * dy; 
-            if (dist_sq < min_dist_sq) // if current waypoint is closer than the previous closest waypoint
+            // note: computing squared distance instead of distance to avoid square root operation
+            // on each iteration
+            double dist_sq = dx * dx + dy * dy;
+            if (dist_sq <
+                min_dist_sq) // if current waypoint is closer than the previous closest waypoint
             {
                 min_dist_sq = dist_sq; // update the closest waypoint
-                closest_idx = i; // update the index of the closest waypoint
+                closest_idx = i;       // update the index of the closest waypoint
             }
         }
 
@@ -121,19 +126,22 @@ private:
         ptsy_local.reserve(max_points);
 
         size_t samples_checked = 0;
-        while (ptsx_local.size() < max_points && samples_checked < ptsx_.size())
-        {
-            size_t idx = (closest_idx + samples_checked) % ptsx_.size(); // needed because the track is circular
+        while (ptsx_local.size() < max_points && samples_checked < ptsx_.size()) {
+            size_t idx = (closest_idx + samples_checked) %
+                         ptsx_.size(); // needed because the track is circular
             samples_checked++;
 
             double dx = ptsx_[idx] - px; // difference in x between waypoint and car
             double dy = ptsy_[idx] - py; // difference in y between waypoint and car
 
-            double x_local = dx * cos(-psi) - dy * sin(-psi); // get the x position of the waypoint in the car's body frame
-            double y_local = dx * sin(-psi) + dy * cos(-psi); // get the y position of the waypoint in the car's body frame
+            double x_local =
+                dx * cos(-psi) -
+                dy * sin(-psi); // get the x position of the waypoint in the car's body frame
+            double y_local =
+                dx * sin(-psi) +
+                dy * cos(-psi); // get the y position of the waypoint in the car's body frame
 
-            if (x_local < 0.0 || x_local > max_forward_range)
-            {
+            if (x_local < 0.0 || x_local > max_forward_range) {
                 continue;
             }
 
@@ -143,71 +151,85 @@ private:
             ptsy_local.push_back(y_local);
         }
 
-        if (ptsx_local.size() < 6)
-        {
-            RCLCPP_WARN_THROTTLE(this->get_logger(), *this->get_clock(), 1000,
-                                 "Insufficient forward waypoints (%zu) for polyfit", ptsx_local.size());
+        if (ptsx_local.size() < 6) {
+            RCLCPP_WARN_THROTTLE(
+                this->get_logger(),
+                *this->get_clock(),
+                1000,
+                "Insufficient forward waypoints (%zu) for polyfit",
+                ptsx_local.size()
+            );
         }
 
         return LocalWaypoints{ptsx_local, ptsy_local};
     }
 
-    void loadCenterline(const std::string &path)
-    {
+    PathFit fitToPath(const LocalWaypoints &local_waypoints) const {
+        // y = Ac
+        const Eigen::VectorXd ptsx_eigen = Eigen::Map<const Eigen::VectorXd>(
+            local_waypoints.ptsx.data(),
+            static_cast<Eigen::Index>(local_waypoints.ptsx.size())
+        );
+        const Eigen::VectorXd ptsy_eigen = Eigen::Map<const Eigen::VectorXd>(
+            local_waypoints.ptsy.data(),
+            static_cast<Eigen::Index>(local_waypoints.ptsy.size())
+        );
+        Eigen::VectorXd coeffs = polyfit(ptsx_eigen, ptsy_eigen, 3);
+        double cte = polyeval(coeffs, 0.0); // y error at x=0
+        double epsi = -std::atan(
+            coeffs[1]
+        ); // heading error at x=0 (the slope of the polynomial at x=0). It will always be x=0
+           // because the car is always at the origin in the body frame.
+        return PathFit{coeffs, cte, epsi};
+    }
+
+    void loadCenterline(const std::string &path) {
 
         std::ifstream file(path);
-        if (!file.is_open())
-        {
+        if (!file.is_open()) {
             RCLCPP_ERROR(this->get_logger(), "Failed to open file: %s", path.c_str());
             return;
         }
         std::string line;
         std::getline(file, line);
 
-        while (std::getline(file, line))
-        {
+        while (std::getline(file, line)) {
             std::stringstream ss(line);
             std::string x_str, y_str;
-            if (std::getline(ss, x_str, ',') && std::getline(ss, y_str))
-            {
-                try
-                {
+            if (std::getline(ss, x_str, ',') && std::getline(ss, y_str)) {
+                try {
                     ptsx_.push_back(std::stod(x_str));
                     ptsy_.push_back(std::stod(y_str));
-                }
-                catch (const std::invalid_argument &e)
-                {
+                } catch (const std::invalid_argument &e) {
                     RCLCPP_WARN(this->get_logger(), "Skipping invalid row: '%s'", line.c_str());
                 }
             }
         }
     }
 
-    void poseCallback(const nav_msgs::msg::Odometry::SharedPtr msg)
-    {   
+    void odomCallback(const nav_msgs::msg::Odometry::SharedPtr msg) {
         // Phase 1 (Get current state): Get the car's current state
         const CarState current_state = getCurrentState(msg);
         double v = current_state.v;
 
         // Phase 2 (Localize/Fit the path): Find the closest waypoint and return the local waypoints
         LocalWaypoints local_waypoints = findLocalWaypoints(current_state);
-
-        // y = Ac
-        Eigen::VectorXd ptsx_eigen = Eigen::Map<Eigen::VectorXd>(local_waypoints.ptsx.data(), local_waypoints.ptsx.size()); // each row of A matrix
-        Eigen::VectorXd ptsy_eigen = Eigen::Map<Eigen::VectorXd>(local_waypoints.ptsy.data(), local_waypoints.ptsy.size()); // y column vector
-        coeffs_ = polyfit(ptsx_eigen, ptsy_eigen, 3);
-        double cte = polyeval(coeffs_, 0.0);  // y error at x=0
-        double epsi = -std::atan(coeffs_[1]); // heading error at x=0 (the slope of the polynomial at x=0). It will always be x=0 because the car is always at the origin in the body frame.
+        PathFit path_fit = fitToPath(local_waypoints);
 
         // Setup state vector: [x, y, psi, v, cte, epsi]
         // cte: answers is the car to the right or left of the path
         // epsi: answers if the car's hood facing the same way as the path
         Eigen::VectorXd state(6);
-        state << 0.0, 0.0, 0.0, v, cte, epsi;
+        state << 0.0, 0.0, 0.0, v, path_fit.cte, path_fit.epsi;
 
         // Call the solver with the current state and coefficients
-        std::vector<double> result = mpc_.Solve(state, coeffs_);
-        publishVisualization(msg->header.stamp, local_waypoints.ptsx, local_waypoints.ptsy, coeffs_);
+        std::vector<double> result = mpc_.Solve(state, path_fit.coeffs);
+        publishVisualization(
+            msg->header.stamp,
+            local_waypoints.ptsx,
+            local_waypoints.ptsy,
+            path_fit.coeffs
+        );
 
         v += result[1] * dt; // <- simulate updated velocity (odom_v + a0 * 0.1)
 
@@ -219,13 +241,13 @@ private:
         cmd_pub_->publish(drive_msg);
     }
 
-    void publishVisualization(const rclcpp::Time &stamp,
-                              const std::vector<double> &ptsx_local,
-                              const std::vector<double> &ptsy_local,
-                              const Eigen::VectorXd &coeffs)
-    {
-        if (!centerline_marker_pub_ || !fit_marker_pub_)
-        {
+    void publishVisualization(
+        const rclcpp::Time &stamp,
+        const std::vector<double> &ptsx_local,
+        const std::vector<double> &ptsy_local,
+        const Eigen::VectorXd &coeffs
+    ) {
+        if (!centerline_marker_pub_ || !fit_marker_pub_) {
             return;
         }
 
@@ -241,8 +263,7 @@ private:
         centerline_marker.color.g = 1.0f;
         centerline_marker.color.a = 1.0f;
 
-        for (size_t i = 0; i < ptsx_local.size(); ++i)
-        {
+        for (size_t i = 0; i < ptsx_local.size(); ++i) {
             geometry_msgs::msg::Point p;
             p.x = ptsx_local[i];
             p.y = ptsy_local[i];
@@ -262,8 +283,7 @@ private:
 
         const double max_x = 15.0;
         const double step = 0.3;
-        for (double x = 0.0; x <= max_x; x += step)
-        {
+        for (double x = 0.0; x <= max_x; x += step) {
             geometry_msgs::msg::Point p;
             p.x = x;
             p.y = polyeval(coeffs, x);
@@ -283,8 +303,7 @@ private:
     rclcpp::Publisher<visualization_msgs::msg::Marker>::SharedPtr fit_marker_pub_;
 };
 
-int main(int argc, char **argv)
-{
+int main(int argc, char **argv) {
     // Initialize the ROS 2 client library
     rclcpp::init(argc, argv);
     // Construct the MPCNode and spin until shutdown
