@@ -8,7 +8,8 @@ slash_mpc:
       min_waypoints: 6
 
     vehicle:
-      wheelbase: 2.67
+      # Traxxas Slash 2WD axle-to-axle: 0.335 m = 13.2 in
+      wheelbase: 0.335
 
     mpc:
       horizon_steps: 10
@@ -19,9 +20,9 @@ slash_mpc:
         cte: 2000.0
         heading_error: 2000.0
         velocity: 10000.0
-        steering: 10.0
+        steering: 640.0
         acceleration: 10.0
-        steering_rate: 100.0
+        steering_rate: 6400.0
         acceleration_rate: 10.0
 
     limits:
