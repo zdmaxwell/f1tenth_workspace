@@ -1,0 +1,248 @@
+<?xml version="1.0"?>
+<robot xmlns:xacro="http://www.ros.org/wiki/xacro" name="rover_towing_system">
+  <xacro:arg name="params_file" default="$(find rover_description)/config/model_parameters.yaml"/>
+  <xacro:arg name="payload_mass_kg" default="0.0"/>
+
+  <xacro:property name="p" value="${xacro.load_yaml('$(arg params_file)')}"/>
+  <xacro:property name="r" value="${p['rover']}"/>
+  <xacro:property name="h" value="${p['hitch']}"/>
+  <xacro:property name="w" value="${p['wagon']}"/>
+  <xacro:property name="payload" value="${p['payload']}"/>
+  <xacro:property name="payload_mass" value="${float('$(arg payload_mass_kg)')}"/>
+  <xacro:property name="PI_VALUE" value="3.141592653589793"/>
+
+  <material name="rover_blue"><color rgba="0.05 0.20 0.80 1.0"/></material>
+  <material name="frame_gray"><color rgba="0.25 0.25 0.28 1.0"/></material>
+  <material name="wagon_black"><color rgba="0.04 0.04 0.04 1.0"/></material>
+  <material name="wheel_black"><color rgba="0.015 0.015 0.015 1.0"/></material>
+  <material name="payload_orange"><color rgba="0.90 0.35 0.05 0.75"/></material>
+
+  <xacro:macro name="box_inertial" params="mass x y z">
+    <inertial>
+      <mass value="${mass}"/>
+      <inertia
+        ixx="${mass * (y*y + z*z) / 12.0}" ixy="0.0" ixz="0.0"
+        iyy="${mass * (x*x + z*z) / 12.0}" iyz="0.0"
+        izz="${mass * (x*x + y*y) / 12.0}"/>
+    </inertial>
+  </xacro:macro>
+
+  <xacro:macro name="wheel_inertial" params="mass radius width">
+    <inertial>
+      <mass value="${mass}"/>
+      <inertia
+        ixx="${mass * (3.0*radius*radius + width*width) / 12.0}" ixy="0.0" ixz="0.0"
+        iyy="${mass * radius*radius / 2.0}" iyz="0.0"
+        izz="${mass * (3.0*radius*radius + width*width) / 12.0}"/>
+    </inertial>
+  </xacro:macro>
+
+  <xacro:macro name="rover_wheel" params="name x y steering">
+    <xacro:if value="${steering}">
+      <link name="${name}_steer_link">
+        <xacro:box_inertial mass="0.02" x="0.02" y="0.02" z="0.02"/>
+      </link>
+      <joint name="${name}_steer_joint" type="revolute">
+        <parent link="base_link"/>
+        <child link="${name}_steer_link"/>
+        <origin xyz="${x} ${y} -0.050"/>
+        <axis xyz="0 0 1"/>
+        <limit lower="${-r['steering_limit_rad']}" upper="${r['steering_limit_rad']}" effort="20.0" velocity="4.0"/>
+        <dynamics damping="0.05"/>
+      </joint>
+      <xacro:property name="wheel_parent" value="${name}_steer_link"/>
+      <xacro:property name="wheel_origin" value="0 0 0"/>
+    </xacro:if>
+    <xacro:unless value="${steering}">
+      <xacro:property name="wheel_parent" value="base_link"/>
+      <xacro:property name="wheel_origin" value="${x} ${y} -0.050"/>
+    </xacro:unless>
+
+    <link name="${name}_wheel_link">
+      <visual>
+        <origin rpy="${PI_VALUE/2.0} 0 0"/>
+        <geometry><cylinder radius="${r['wheel_radius_m']}" length="${r['wheel_width_m']}"/></geometry>
+        <material name="wheel_black"/>
+      </visual>
+      <collision>
+        <origin rpy="${PI_VALUE/2.0} 0 0"/>
+        <geometry><cylinder radius="${r['wheel_radius_m']}" length="${r['wheel_width_m']}"/></geometry>
+      </collision>
+      <xacro:wheel_inertial mass="0.10" radius="${r['wheel_radius_m']}" width="${r['wheel_width_m']}"/>
+    </link>
+    <joint name="${name}_wheel_joint" type="continuous">
+      <parent link="${wheel_parent}"/>
+      <child link="${name}_wheel_link"/>
+      <origin xyz="${wheel_origin}"/>
+      <axis xyz="0 1 0"/>
+      <dynamics damping="0.02"/>
+    </joint>
+  </xacro:macro>
+
+  <xacro:macro name="wagon_wheel" params="name x y swivel">
+    <xacro:if value="${swivel}">
+      <link name="${name}_caster_fork_link">
+        <visual>
+          <origin xyz="0 0 -0.025"/>
+          <geometry><cylinder radius="0.014" length="0.050"/></geometry>
+          <material name="frame_gray"/>
+        </visual>
+        <xacro:box_inertial mass="0.05" x="0.03" y="0.03" z="0.05"/>
+      </link>
+      <joint name="${name}_caster_swivel_joint" type="continuous">
+        <parent link="wagon_body_link"/>
+        <child link="${name}_caster_fork_link"/>
+        <origin xyz="${x} ${y} ${-w['modeled_body_height_m']/2.0}"/>
+        <axis xyz="0 0 1"/>
+        <dynamics damping="${w['swivel_damping_nms_per_rad']}"/>
+      </joint>
+      <xacro:property name="wagon_wheel_parent" value="${name}_caster_fork_link"/>
+      <xacro:property name="wagon_wheel_origin" value="${-w['caster_trail_m']} 0 ${-w['wheel_radius_m']}"/>
+    </xacro:if>
+    <xacro:unless value="${swivel}">
+      <xacro:property name="wagon_wheel_parent" value="wagon_body_link"/>
+      <xacro:property name="wagon_wheel_origin" value="${x} ${y} ${-w['modeled_body_height_m']/2.0 - w['wheel_radius_m']}"/>
+    </xacro:unless>
+
+    <link name="${name}_wheel_link">
+      <visual>
+        <origin rpy="${PI_VALUE/2.0} 0 0"/>
+        <geometry><cylinder radius="${w['wheel_radius_m']}" length="${w['wheel_width_m']}"/></geometry>
+        <material name="wheel_black"/>
+      </visual>
+      <collision>
+        <origin rpy="${PI_VALUE/2.0} 0 0"/>
+        <geometry><cylinder radius="${w['wheel_radius_m']}" length="${w['wheel_width_m']}"/></geometry>
+      </collision>
+      <xacro:wheel_inertial mass="0.10" radius="${w['wheel_radius_m']}" width="${w['wheel_width_m']}"/>
+    </link>
+    <joint name="${name}_wheel_joint" type="continuous">
+      <parent link="${wagon_wheel_parent}"/>
+      <child link="${name}_wheel_link"/>
+      <origin xyz="${wagon_wheel_origin}"/>
+      <axis xyz="0 1 0"/>
+      <dynamics damping="${w['wheel_damping_nms_per_rad']}"/>
+    </joint>
+  </xacro:macro>
+
+  <link name="base_link">
+    <visual>
+      <geometry>
+        <box size="${r['body_length_m']} ${r['body_width_m']} ${r['body_height_m']}"/>
+      </geometry>
+      <material name="rover_blue"/>
+    </visual>
+    <collision>
+      <geometry>
+        <box size="${r['body_length_m']} ${r['body_width_m']} ${r['body_height_m']}"/>
+      </geometry>
+    </collision>
+    <xacro:box_inertial
+      mass="${r['mass_kg'] - 0.4}"
+      x="${r['body_length_m']}" y="${r['body_width_m']}" z="${r['body_height_m']}"/>
+  </link>
+
+  <xacro:rover_wheel name="front_left" x="${r['wheelbase_m']/2.0}" y="${r['track_m']/2.0}" steering="${True}"/>
+  <xacro:rover_wheel name="front_right" x="${r['wheelbase_m']/2.0}" y="${-r['track_m']/2.0}" steering="${True}"/>
+  <xacro:rover_wheel name="rear_left" x="${-r['wheelbase_m']/2.0}" y="${r['track_m']/2.0}" steering="${False}"/>
+  <xacro:rover_wheel name="rear_right" x="${-r['wheelbase_m']/2.0}" y="${-r['track_m']/2.0}" steering="${False}"/>
+
+  <link name="rear_hitch_mount_link">
+    <visual><geometry><sphere radius="0.018"/></geometry><material name="frame_gray"/></visual>
+    <xacro:box_inertial mass="0.05" x="0.03" y="0.03" z="0.03"/>
+  </link>
+  <joint name="rear_hitch_mount_joint" type="fixed">
+    <parent link="base_link"/>
+    <child link="rear_hitch_mount_link"/>
+    <origin xyz="${r['rear_hitch_x_m']} 0 ${r['rear_hitch_z_m']}"/>
+  </joint>
+
+  <link name="hitch_yaw_link"><xacro:box_inertial mass="0.02" x="0.02" y="0.02" z="0.02"/></link>
+  <joint name="hitch_yaw_joint" type="revolute">
+    <parent link="rear_hitch_mount_link"/>
+    <child link="hitch_yaw_link"/>
+    <axis xyz="0 0 1"/>
+    <limit lower="${-h['yaw_limit_rad']}" upper="${h['yaw_limit_rad']}" effort="200.0" velocity="4.0"/>
+    <dynamics damping="${h['joint_damping_nms_per_rad']}"/>
+  </joint>
+
+  <link name="hitch_pitch_link"><xacro:box_inertial mass="0.02" x="0.02" y="0.02" z="0.02"/></link>
+  <joint name="hitch_pitch_joint" type="revolute">
+    <parent link="hitch_yaw_link"/>
+    <child link="hitch_pitch_link"/>
+    <axis xyz="0 1 0"/>
+    <limit lower="${-h['pitch_limit_rad']}" upper="${h['pitch_limit_rad']}" effort="200.0" velocity="4.0"/>
+    <dynamics damping="${h['joint_damping_nms_per_rad']}"/>
+  </joint>
+
+  <link name="hitch_roll_link"><xacro:box_inertial mass="0.02" x="0.02" y="0.02" z="0.02"/></link>
+  <joint name="hitch_roll_joint" type="revolute">
+    <parent link="hitch_pitch_link"/>
+    <child link="hitch_roll_link"/>
+    <axis xyz="1 0 0"/>
+    <limit lower="${-h['roll_limit_rad']}" upper="${h['roll_limit_rad']}" effort="200.0" velocity="4.0"/>
+    <dynamics damping="${h['joint_damping_nms_per_rad']}"/>
+  </joint>
+
+  <link name="towbar_link">
+    <visual>
+      <origin xyz="${-h['towbar_length_m']/2.0} 0 0" rpy="0 ${-PI_VALUE/2.0} 0"/>
+      <geometry><cylinder radius="${h['towbar_radius_m']}" length="${h['towbar_length_m']}"/></geometry>
+      <material name="frame_gray"/>
+    </visual>
+    <collision>
+      <origin xyz="${-h['towbar_length_m']/2.0} 0 0" rpy="0 ${-PI_VALUE/2.0} 0"/>
+      <geometry><cylinder radius="${h['towbar_radius_m']}" length="${h['towbar_length_m']}"/></geometry>
+    </collision>
+    <xacro:box_inertial mass="${h['towbar_mass_kg']}" x="${h['towbar_length_m']}" y="${2.0*h['towbar_radius_m']}" z="${2.0*h['towbar_radius_m']}"/>
+  </link>
+  <joint name="towbar_joint" type="fixed">
+    <parent link="hitch_roll_link"/>
+    <child link="towbar_link"/>
+  </joint>
+
+  <link name="wagon_body_link">
+    <visual>
+      <geometry>
+        <box size="${w['envelope_length_m']} ${w['envelope_width_m']} ${w['modeled_body_height_m']}"/>
+      </geometry>
+      <material name="wagon_black"/>
+    </visual>
+    <collision>
+      <geometry>
+        <box size="${w['envelope_length_m']} ${w['envelope_width_m']} ${w['modeled_body_height_m']}"/>
+      </geometry>
+    </collision>
+    <xacro:box_inertial
+      mass="${w['empty_mass_kg'] - 0.6}"
+      x="${w['envelope_length_m']}" y="${w['envelope_width_m']}" z="${w['modeled_body_height_m']}"/>
+  </link>
+  <joint name="wagon_body_joint" type="fixed">
+    <parent link="towbar_link"/>
+    <child link="wagon_body_link"/>
+    <origin xyz="${-(h['towbar_length_m'] + w['envelope_length_m']/2.0)} 0 ${w['hitch_to_body_center_z_m']}"/>
+  </joint>
+
+  <xacro:wagon_wheel name="wagon_front_left" x="${w['caster_wheelbase_m']/2.0}" y="${w['caster_track_m']/2.0}" swivel="${True}"/>
+  <xacro:wagon_wheel name="wagon_front_right" x="${w['caster_wheelbase_m']/2.0}" y="${-w['caster_track_m']/2.0}" swivel="${True}"/>
+  <xacro:wagon_wheel name="wagon_rear_left" x="${-w['caster_wheelbase_m']/2.0}" y="${w['caster_track_m']/2.0}" swivel="${False}"/>
+  <xacro:wagon_wheel name="wagon_rear_right" x="${-w['caster_wheelbase_m']/2.0}" y="${-w['caster_track_m']/2.0}" swivel="${False}"/>
+
+  <xacro:if value="${payload_mass > 0.0}">
+    <link name="payload_link">
+      <visual>
+        <geometry><box size="${payload['size_x_m']} ${payload['size_y_m']} ${payload['size_z_m']}"/></geometry>
+        <material name="payload_orange"/>
+      </visual>
+      <collision>
+        <geometry><box size="${payload['size_x_m']} ${payload['size_y_m']} ${payload['size_z_m']}"/></geometry>
+      </collision>
+      <xacro:box_inertial mass="${payload_mass}" x="${payload['size_x_m']}" y="${payload['size_y_m']}" z="${payload['size_z_m']}"/>
+    </link>
+    <joint name="payload_joint" type="fixed">
+      <parent link="wagon_body_link"/>
+      <child link="payload_link"/>
+      <origin xyz="${payload['center_x_m']} ${payload['center_y_m']} ${payload['center_z_m']}"/>
+    </joint>
+  </xacro:if>
+</robot>

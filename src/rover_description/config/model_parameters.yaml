@@ -1,0 +1,132 @@
+# Running estimates for the rover model.
+#
+# Sources:
+#   Traxxas Slash 2WD XL-5 page
+#   Blomoba Amazon listing B0DHRHL3XD
+#
+# Frame: x forward, y left, z up. Units are SI.
+
+schema_version: 1
+coordinate_convention:
+  x: forward
+  y: left
+  z: up
+
+sources:
+  slash: https://traxxas.com/58034-8-110-slash-xl-5-2wd-short-course-truck-w-tq-radio
+  wagon: https://www.amazon.com/dp/B0DHRHL3XD
+  wagon_asin: B0DHRHL3XD
+  wagon_size: Medium Without Tailgate
+
+rover:
+  # Product Spec: Traxxas length 22.36 in = 568 mm
+  body_length_m: 0.568
+  # TODO: confirm estimate. Traxxas width / track is 11.65 in = 0.296 m
+  body_width_m: 0.325
+  # TODO: confirm estimate. Chassis height. Traxxas overall height is 8.43 in = 0.214 m.
+  body_height_m: 0.120
+  # TODO: confirm estimate. Traxxas XL-5 weight is 2.16 kg.
+  mass_kg: 2.60
+  # Product Spec: Traxxas wheelbase 13.2 in = 335 mm. Value pulled from rover_mpc.yaml.
+  wheelbase_m: 0.335
+  # Product Spec: Traxxas front/rear track is 0.296 m. (Left to right distance between pair of wheels)
+  track_m: 0.325
+  # TODO: confirm estimate. typical Slash tire, ~4.3 in diameter.
+  wheel_radius_m: 0.055
+  # TODO: confirm estimate. typical Slash tire width.
+  wheel_width_m: 0.047
+  # Project: rover_mpc.yaml max_steering_angle. rover_drive default is 0.523 rad.
+  steering_limit_rad: 0.436332
+  # TODO: confirm estimate. Hitch placed at the rear face of the body box, -length/2.
+  rear_hitch_x_m: -0.284
+  # TODO: confirm estimate. Hitch slightly below body center.
+  rear_hitch_z_m: -0.030
+
+hitch:
+  # TODO: confirm estimates.
+  towbar_length_m: 0.350
+  towbar_radius_m: 0.010
+  towbar_mass_kg: 0.30
+  yaw_limit_rad: 1.221730      # TODO: confirm estimate. +/- 70 deg
+  pitch_limit_rad: 0.349066    # TODO: confirm estimate. +/- 20 deg
+  roll_limit_rad: 0.174533     # TODO: confirm estimate. +/- 10 deg
+  joint_damping_nms_per_rad: 0.05
+
+wagon:
+  # Product Spec: 27.17 in. Length of the wagon body (outer).
+  envelope_length_m: 0.690
+  # Product Spec: 16.54 in. Width of the wagon body (outer).
+  envelope_width_m: 0.420
+  # Product Spec: 17.91 in. Height of the wagon body (outer).
+  envelope_height_m: 0.455
+  # TODO: confirm estimate. Body height.
+  modeled_body_height_m: 0.300
+  # TODO: confirm estimate. 11.2 lb
+  empty_mass_kg: 5.08
+  # TODO: confirm estimate. 220 lb structural rating.
+  rated_payload_kg: 99.8
+  # Product Spec: front two swivel, rear two fixed.
+  front_wheel_type: swivel
+  rear_wheel_type: fixed
+  # TODO: confirm estimate. 0.550 m is inset from the 0.690 m envelope.
+  caster_wheelbase_m: 0.550
+  # TODO: confirm estimate. 0.360 m is inset from the 0.420 m envelope.
+  caster_track_m: 0.360
+  # TODO: confirm estimate. Assumed 6 in caster.
+  wheel_radius_m: 0.075
+  # TODO: confirm estimate. Assumed 40 mm tire.
+  wheel_width_m: 0.040
+  # TODO: confirm estimate. Assumed 25 mm trail.
+  caster_trail_m: 0.025
+  # TODO: confirm estimate. Body center above the hitch.
+  hitch_to_body_center_z_m: 0.150
+  # TODO: confirm estimate. Placeholder damping for later simulation.
+  swivel_damping_nms_per_rad: 0.15
+  # TODO: confirm estimate. Placeholder damping for later simulation.
+  wheel_damping_nms_per_rad: 0.02
+
+payload:
+  # TODO: confirm estimates. Empty wagon is mass_kg = 0.0.
+  mass_kg: 0.0
+  size_x_m: 0.450
+  size_y_m: 0.300
+  size_z_m: 0.200
+  center_x_m: 0.0
+  center_y_m: 0.0
+  center_z_m: 0.200
+
+provenance:
+  listing:
+    - rover.body_length_m
+    - rover.wheelbase_m
+    - wagon.envelope_length_m
+    - wagon.envelope_width_m
+    - wagon.envelope_height_m
+    - wagon.empty_mass_kg
+    - wagon.rated_payload_kg
+  project:
+    - rover.track_m
+    - rover.steering_limit_rad
+  inspected:
+    - wagon.front_wheel_type
+    - wagon.rear_wheel_type
+  estimated:
+    - rover.body_width_m
+    - rover.body_height_m
+    - rover.mass_kg
+    - rover.wheel_radius_m
+    - rover.wheel_width_m
+    - rover.rear_hitch_x_m
+    - rover.rear_hitch_z_m
+    - hitch
+    - wagon.modeled_body_height_m
+    - wagon.caster_wheelbase_m
+    - wagon.caster_track_m
+    - wagon.wheel_radius_m
+    - wagon.wheel_width_m
+    - wagon.caster_trail_m
+    - wagon.hitch_to_body_center_z_m
+    - wagon.swivel_damping_nms_per_rad
+    - wagon.wheel_damping_nms_per_rad
+    - payload
+  measured: []

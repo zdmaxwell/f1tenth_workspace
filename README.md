@@ -7,10 +7,11 @@ A general-purpose autonomous load-carrying robot built on a Traxxas Slash base.
 
 ## Start guide
 
-This workspace contains two ROS 2 packages so far:
+This workspace contains two working ROS 2 packages and one in-progress model:
 
 - `rover_control`: provides the `rover_mpc` model predictive controller that consumes `/odom` and publishes `/ackermann_cmd`.
 - `rover_drive`: provides the `rover_twist_to_ackermann` teleop helper plus the `twist_to_ackermann.launch.py` convenience launcher.
+- `rover_description`: geometry so far (running estimates). Start with `config/model_parameters.yaml`.
 
 Use the guide below whenever you need to bring the stack up.
 
