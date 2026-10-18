@@ -1,16 +1,20 @@
-F1TENTH Slash MPC
+# Porter (working name) — garage → apartment grocery haul
 
-## Slash MPC Demo
+Traxxas Slash + grocery wagon autonomy. Racing MPC is the starting point; the longer goal is a supervised autonomous haul from the car in the garage to the apartment door.
+
+See **[PLAN.md](PLAN.md)** for naming, rename steps, and the phased roadmap.
+
+## Slash MPC Demo (current stack)
 [Video](media/slash_mpc_11162025_2.mp4)
 
-
-F1TENTH Racing -- Start Guide
-===================================
+## Bring-up guide (current `f1tenth_*` packages)
 
 This workspace contains two ROS 2 packages so far:
 
 - `f1tenth_control`: provides the `slash_mpc` model predictive controller that consumes `/odom` and publishes `/ackermann_cmd`.
 - `f1tenth_drive`: provides the `slash_twist_to_ackermann` teleop helper plus the `twist_to_ackermann.launch.py` convenience launcher.
+
+> Packages still use the `f1tenth_*` names until the rename PR in PLAN.md §2. Behavior is unchanged.
 
 Use the guide below whenever you need to bring the stack up.
 
