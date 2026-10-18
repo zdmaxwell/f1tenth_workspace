@@ -15,9 +15,9 @@ def generate_launch_description():
         DeclareLaunchArgument("ackermann_publish_topic", default_value="/ackermann_cmd", description="topic to publish to that uses Ackermann msgs"),
         
         Node(
-            package='f1tenth_drive',
-            executable='slash_twist_to_ackermann',
-            name='slash_twist_to_ackermann',
+            package='rover_drive',
+            executable='rover_twist_to_ackermann',
+            name='rover_twist_to_ackermann',
             output="screen",
             parameters=[{
                 'publish_period_ms': LaunchConfiguration('publish_period_ms'),

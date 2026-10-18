@@ -1,4 +1,4 @@
-slash_mpc:
+rover_mpc:
   ros__parameters:
     base_frame: base_link
 

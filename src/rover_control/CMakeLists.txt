@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.8)
-project(f1tenth_control)
+project(rover_control)
 
 if(CMAKE_COMPILER_IS_GNUCXX OR CMAKE_CXX_COMPILER_ID MATCHES "Clang")
   add_compile_options(-Wall -Wextra -Wpedantic)
@@ -24,16 +24,16 @@ include_directories(${EIGEN3_INCLUDE_DIRS})
 include_directories(${CppAD_INCLUDE_DIRS})
 include_directories(include)
 
-# Build an executable named 'slash_mpc' from the source file at src/slash_mpc.cpp
+# Build the Rover MPC control node.
 # This will be the main entry point for the MPC control node
-add_executable(slash_mpc
-  src/slash_mpc.cpp
+add_executable(rover_mpc
+  src/rover_mpc.cpp
   src/mpc.cpp
 )
 
 # Link the executable against the rclcpp library (ROS 2 C++ client library)
 # This gives the node access to ROS 2 APIs like publishing, subscribing, etc.
-ament_target_dependencies(slash_mpc
+ament_target_dependencies(rover_mpc
   rclcpp
   Eigen3
   geometry_msgs
@@ -46,21 +46,20 @@ ament_target_dependencies(slash_mpc
 
 # Link the executable against the Ipopt optimization library
 # Ipopt will be used to solve the nonlinear optimization problem in the MPC controller
-target_link_libraries(slash_mpc ${IPOPT_LIBRARIES})
-target_link_libraries(slash_mpc Eigen3::Eigen)
+target_link_libraries(rover_mpc ${IPOPT_LIBRARIES})
+target_link_libraries(rover_mpc Eigen3::Eigen)
 
 find_library(CPPAD_LIB cppad_lib PATHS /usr/local/lib /usr/lib)
 
 if(CPPAD_LIB)
   message(STATUS "CppAD lib found at: ${CPPAD_LIB}")
-  target_link_libraries(slash_mpc ${CPPAD_LIB})
+  target_link_libraries(rover_mpc ${CPPAD_LIB})
 else()
   message(FATAL_ERROR "CppAD lib not found. Make sure CppAD is built and installed.")
 endif()
 
-# Install the compiled slash_mpc binary into the ROS2 install path
-# This ensures it can be run using the `ros2 run f1tenth_control slash_mpc` command
-install(TARGETS slash_mpc DESTINATION lib/${PROJECT_NAME})
+# Install the compiled rover_mpc binary into the ROS 2 install path.
+install(TARGETS rover_mpc DESTINATION lib/${PROJECT_NAME})
 install(DIRECTORY config launch DESTINATION share/${PROJECT_NAME})
 
 if(BUILD_TESTING)

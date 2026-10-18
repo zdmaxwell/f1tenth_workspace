@@ -2,13 +2,13 @@
 #include "geometry_msgs/msg/twist.hpp"
 #include "ackermann_msgs/msg/ackermann_drive_stamped.hpp"
 
-// For Traxxas Slash F1TENTH build
+// Twist-to-Ackermann adapter for Rover's Traxxas Slash base.
 // Using to test teleop works with ROS2 setup
 // Subscribes to a Twist message (linear and angular velocity), converts it to an AckermannDriveStamped message, and publishes it to ackermann_cmd topic
-class SlashTwistToAckermann : public rclcpp::Node
+class RoverTwistToAckermann : public rclcpp::Node
 {
 public:
-    SlashTwistToAckermann() : Node("slash_twist_to_ackermann")
+    RoverTwistToAckermann() : Node("rover_twist_to_ackermann")
     {
         loadParameters();
         logParameters();
@@ -16,7 +16,7 @@ public:
         setupPublishers();
         setupTimer();
 
-        RCLCPP_INFO(this->get_logger(), "SlashTwistToAckermann Node started");
+        RCLCPP_INFO(this->get_logger(), "RoverTwistToAckermann Node started");
     }
 
 private:
@@ -87,7 +87,7 @@ private:
 
     void logParameters()
     {
-        RCLCPP_INFO(this->get_logger(), "===== SlashTwistToAckermann Parameters =====");
+        RCLCPP_INFO(this->get_logger(), "===== RoverTwistToAckermann Parameters =====");
         RCLCPP_INFO(this->get_logger(), "Twist subscribe topic: %s", twist_subscribe_topic_.c_str());
         RCLCPP_INFO(this->get_logger(), "Ackermann publish topic: %s", ackermann_publish_topic_.c_str());
         RCLCPP_INFO(this->get_logger(), "Track Width: %.3f m", track_width_);
@@ -143,7 +143,7 @@ private:
 int main(int argc, char *argv[])
 {
     rclcpp::init(argc, argv);
-    rclcpp::spin(std::make_shared<SlashTwistToAckermann>());
+    rclcpp::spin(std::make_shared<RoverTwistToAckermann>());
     rclcpp::shutdown();
     return 0;
 }

@@ -1,5 +1,5 @@
-#include "f1tenth_control/mpc.h"
-#include "f1tenth_control/utils.h"
+#include "rover_control/mpc.h"
+#include "rover_control/utils.h"
 #include <Eigen/Dense>
 #include <Eigen/QR>
 #include <IpIpoptApplication.hpp>
@@ -17,10 +17,10 @@
 #include <tf2_geometry_msgs/tf2_geometry_msgs.hpp>
 #include <visualization_msgs/msg/marker.hpp>
 
-// Model Predictive Controller for Slash 2WD
+// Model Predictive Controller for Rover's Traxxas Slash 2WD base.
 class MPCNode : public rclcpp::Node {
   public:
-    MPCNode() : Node("slash_mpc") {
+    MPCNode() : Node("rover_mpc") {
         const auto centerline_csv = this->declare_parameter<std::string>("centerline_csv");
         base_frame_ = this->declare_parameter<std::string>("base_frame");
         max_forward_range_ = this->declare_parameter<double>("path.max_forward_range");

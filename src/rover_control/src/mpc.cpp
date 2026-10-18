@@ -1,4 +1,4 @@
-#include "f1tenth_control/mpc.h"
+#include "rover_control/mpc.h"
 #include <cppad/ipopt/solve.hpp>
 #include <iostream>
 #include <sstream>

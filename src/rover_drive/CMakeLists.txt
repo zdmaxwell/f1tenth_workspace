@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.8)
-project(f1tenth_drive)
+project(rover_drive)
 
 if(CMAKE_COMPILER_IS_GNUCXX OR CMAKE_CXX_COMPILER_ID MATCHES "Clang")
   add_compile_options(-Wall -Wextra -Wpedantic)
@@ -11,16 +11,16 @@ find_package(rclcpp REQUIRED)
 find_package(geometry_msgs REQUIRED)
 find_package(ackermann_msgs REQUIRED)
 
-add_executable(slash_twist_to_ackermann src/slash_twist_to_ackermann.cpp)
+add_executable(rover_twist_to_ackermann src/rover_twist_to_ackermann.cpp)
 
-ament_target_dependencies(slash_twist_to_ackermann
+ament_target_dependencies(rover_twist_to_ackermann
   rclcpp
   geometry_msgs
   ackermann_msgs
 )
 
 install(TARGETS
-  slash_twist_to_ackermann
+  rover_twist_to_ackermann
   DESTINATION lib/${PROJECT_NAME}
 )
 

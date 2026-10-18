@@ -1,5 +1,5 @@
-#ifndef F1TENTH_CONTROL_MPC_H
-#define F1TENTH_CONTROL_MPC_H
+#ifndef ROVER_CONTROL_MPC_H
+#define ROVER_CONTROL_MPC_H
 
 #include "Eigen/Core"
 #include <cppad/cppad.hpp>
@@ -85,4 +85,4 @@ class MPC {
     MPCLayout layout_;
 };
 
-#endif // F1TENTH_CONTROL_MPC_H
+#endif // ROVER_CONTROL_MPC_H
